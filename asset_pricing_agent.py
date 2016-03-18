@@ -82,7 +82,6 @@ class AssetPricingAgent(object):
     A simple asset-pricing agent based on a two-period CRRA model.
     '''
 
-
     def __init__(self, beta, rho, D, D_probs, y0, xi0=0.0):
         '''
         Initialize an asset-pricing agent.
