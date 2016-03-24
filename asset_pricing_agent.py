@@ -2,6 +2,7 @@ import numpy as np
 import pylab as plt
 from copy import deepcopy
 from scipy.optimize import brentq
+from itertools import combinations
 
 
 """
@@ -132,6 +133,8 @@ class AssetPricingAgent(object):
         # Now actually fill in utility and demand functions
         self.update_utility_demand()
 
+        self.p_prev = None
+
 
     def renormalize_beliefs(self):
         # Assuming the beliefs have been changed in some way, renormalize them.
@@ -226,6 +229,12 @@ class AssetMarket(object):
         self.price_history = []
         self.volume_history = []
         self.payoff_history = []
+
+
+        self.bilateral_price_history = []
+        self.bilateral_volume_history = []
+        self.bilateral_trade_partner_history = []
+
 
         self.total_agent_cash_wealth_history = []
         self.total_agent_initial_asset_endowment = []
@@ -340,17 +349,248 @@ class AssetMarket(object):
 
         return p
 
-    def bilateral_trade(self):
+
+
+
+    def run_bilateral_markets(self, T):
+        '''
+        Run market for T periods.
+        '''
+
+        # Draw dividend:
+        D = self.D_process.draw(T)
+
+        for t in range(T):
+
+            # Get agent starting wealth, total agent initial asset endowment
+            # Important to do the following update before updating agent values:
+            total_agent_initial_cash = 0.0
+            total_agent_initial_asset_endowment = 0.0
+            for agent in self.agents:
+                total_agent_initial_cash += agent.y  # Get wealth they started the period with
+                total_agent_initial_asset_endowment += agent.xi0
+
+            self.total_agent_cash_wealth_history.append(total_agent_initial_cash)
+            self.total_agent_initial_asset_endowment.append(total_agent_initial_asset_endowment)
+
+
+            # Clear markets:
+            #pstar = self.clear_market()
+
+            # Update
+            self.price_history.append(pstar)
+
+            self.bilateral_price_history = []
+            self.bilateral_volume_history = []
+            self.bilateral_trade_partner_history = []
+
+            self.payoff_history.append(D[t])
+
+            # Update total volume traded.
+            # Important to do the following update before updating agent values:
+            total_agent_asset_volume = 0.0
+            self.volume_history.append(total_agent_asset_volume)
+
+            # Now update agents and histories:
+            self.update_agents_bilateral(d=D[t]))
+
+        # Done
+
+
+
+    def update_agents_intraperiod(self, these_agents, pstar):
+        '''
+        Given pstar, update all agent histories.
+        '''
+        for i, agent in enumerate(these_agents):
+            # Determine and save choices:
+            xi = agent.demand(pstar)
+
+            # Determine new cash on hand:
+            y_new = agent.y + pstar*(agent.xi0 - xi)
+
+            # Determine cash "set aside" for consumption:
+            ct = agent.y + pstar*agent.xi0 - pstar*xi
+
+            # NOTE TODO Super important: confirm and figure out proper values here!
+
+            # Update agent value:
+            agent.y = y_new
+            agent.xi0 = xi
+            agent.update_utility_demand()
+            agent.p_prev = pstar
+
+
+
+    def update_agents_bilateral(self, d):
+        '''
+        Given pstar, update all agent histories.
+
+        WHERE AT: HERE! Need to think about carefully!
+
+        Definitely need to work through.
+
+        '''
+        for i, agent in enumerate(self.agents):
+            # Determine and save choices:
+            xi = agent.xi0
+            #ct = agent.y + pstar*agent.xi0 - pstar*xi
+            ct = None
+            #print "new c=calc"
+            self.agents_history[i]['c'].append(ct)
+            self.agents_history[i]['y'].append(agent.y)
+            self.agents_history[i]['xi'].append(xi)
+
+            # Update agent value:
+            agent.y += xi*d
+            if not self.lucas_tree:
+                agent.xi0 = xi
+            agent.update_utility_demand()
+        # Done
+
+
+    def update_agents_d_only(self, d):
+        '''
+        Given pstar, update all agent histories.
+        '''
+        for i, agent in enumerate(these_agents):
+            # Determine and save choices:
+            xi = agent.demand(pstar)
+
+            # Determine new cash on hand:
+            y_new = agent.y + pstar*(agent.xi0 - xi)
+
+            # Update agent value:
+            agent.y = y_new
+            agent.xi0 = xi
+            agent.update_utility_demand()
+
+
+
+    def confirm_trade(self, p, trading_agents):
+        trade_occurred = True
+        for an_agent in trading_agents:
+            xi_new = an_agent.demand(p)
+            trade_occurred = trade_occurred and not(np.isclose(xi_new, an_agent.xi0))  # so agents did not trade here
+        return trade_occurred
+
+    def bilateral_trade(self, upper_trade_limit=None):
         '''
         Given a list of agents, pair up agents to trade until no trades are realized.
         '''
 
         # Need to transfer the bilateral market code here. Then need to be careful about how agents are updated and how all of this is saved in market history.
 
-        # Agent updates need to be carried out such that agents themselves are correctly advanced through their asset laws of motion. 
+        # Agent updates need to be carried out such that agents themselves are correctly advanced through their asset laws of motion.
+
+        N = len(self.agents)
+        n_to_trade = 2
+        # Construct a set of all possible n=2-combos of agents:
+        set_of_all_combos = set([frozenset(combo) for combo in combinations(range(N), n_to_trade)])
+
+        if upper_trade_limit is None:
+            upper_trade_limit = len(set_of_all_combos)*5
 
 
-        pass
+        intra_prices = []
+        intra_volumes = []
+        intra_price_partners = []
+        essentially_no_trade = set([])
+
+        no_trade_ctr = 0
+        no_trade_rounds = 2  # How many rounds do we want to go past total no trade "just to check?"
+        while ctr < upper_trade_limit and not(no_price_progress) and no_trade_ctr < no_trade_rounds:
+            # Update ctr:
+            ctr += 1
+
+            # Randomly choose two agents, clear their own trades, and update them.
+            # How: choose N, "order all," grab first two
+            agent_indices = range(N)
+            rng.shuffle(agent_indices)
+
+            trading_agent_indicies = agent_indices[:n_to_trade]
+
+            trading_agents = [self.agents[i] for i in trading_agent_indicies]
+
+            # Choose 2 and get price for clearing
+            pstar = clear_market(these_agents=trading_agents)
+
+            # Check to see if the agents actually trade at this price:
+            trade_occurred = confirm_trade(pstar, trading_agents)
+            if not trade_occurred:
+                # Then add the pair to the list of "no trading pairs":
+                essentially_no_trade.update( [frozenset( trading_agent_indicies )] )
+                print "no trade occurred between", trading_agent_indicies
+            else:
+                print "trade occurred between", trading_agent_indicies
+                # Ensure that agents who traded are removed from "no trade" set:
+                essentially_no_trade -= set([frozenset( trading_agent_indicies )])
+
+                # Record the "intra-day" prices, volume, and update agents:
+                intra_prices.append(pstar)
+                vol1 = np.abs(trading_agents[0].xi0 - trading_agents[0].demand(pstar))
+                for agent in trading_agents[1:]:
+                    vol2 = np.abs(agent.xi0 - agent.demand(pstar))
+                    assert np.isclose(vol1, vol2), "Trading agents are not close! vol1, vol2 = " +str([vol1, vol2])
+                    vol2=vol1
+
+                intra_volumes.append(vol1)
+                intra_price_partners.append(deepcopy(agent_indices[:n_to_trade]))
+
+                # Update agents:
+                self.update_agents_intraperiod(trading_agents, pstar)
+            # FINAL CHECK to see if any agents are
+            if essentially_no_trade == set_of_all_combos:
+                print "All agents not trading"
+                no_trade_ctr += 1
+
+                # Manually loop over all agents and see if possible trading opportunities to exploit:
+                for trade_pair in essentially_no_trade:
+                    # Run all possible trading; if a single trade is successful then
+                    # execute it and kick back out:
+
+                    trading_agent_indicies = trade_pair
+                    trading_agents = [self.agents[i] for i in trading_agent_indicies]
+
+                    # Choose 2 and get price for clearing
+                    pstar = clear_market(these_agents=trading_agents)
+
+                    # Check if any trade:
+                    trade_occurred = confirm_trade(pstar, trading_agents)
+                    if trade_occurred:
+                        # Execute the trade and kick back out
+                        no_trade_ctr = 0  # Reset to kick back out
+                        essentially_no_trade = set([]) #-= set([frozenset( trading_agent_indicies )])
+
+                        # Record the "intra-day" prices and update agents:
+                        intra_prices.append(pstar)
+                        vol1 = np.abs(trading_agents[0].demand(pstar))
+                        for agent in trading_agents[1:]:
+                            vol2 = np.abs(agent.demand(pstar))
+                            assert np.isclose(vol1, vol2), "Trading agents are not close! vol1, vol2 = " +str([vol1, vol2])
+                            vol2=vol1
+
+                        intra_volumes.append(vol1)
+                        intra_price_partners.append(deepcopy(agent_indices[:n_to_trade]))
+
+                        # Update agents:
+                        self.update_agents_intraperiod(trading_agents, pstar)
+                if no_trade_ctr > 0:
+                    print "Confirmed between all trading pairs that no bilateral trades are possible."
+
+        if ctr == upper_trade_limit:
+            raise Exception, "Allowable number of bilateral trades exceeded: ctr="+str(ctr)+", upper_trade_limit="+str(upper_trade_limit)
+
+        vol_weights = np.array(intra_prices) / float(np.sum(intra_prices))
+
+        volume_weighted_price = np.dot(vol_weights, intra_prices)
+        #intra_prices
+        #intra_volumes
+        #intra_price_partners
+
+        agent_bilateral_holdings = deepcopy([agent.xi0 for agent in self.agents])
+
+        return volume_weighted_price, intra_prices, intra_volumes, intra_price_partners, agent_bilateral_holdings
 
     def clear_market2(self, alt_title=""):
 
@@ -582,7 +822,7 @@ if __name__ == "__main__":
 
     # Try bilateral trade:
     market = deepcopy(market2)  # Read back in original market...
-
+    """
     def excess_demand(p, total_supply, these_agents):
         total_demand = 0.0
         for an_agent in these_agents:
@@ -621,6 +861,7 @@ if __name__ == "__main__":
             xi_new = an_agent.demand(p)
             trade_occurred = trade_occurred and not(np.isclose(xi_new, an_agent.xi0))  # so agents did not trade here
         return trade_occurred
+
 
     # Find market price:
     mkt_p = clear_market(these_agents=market.agents)
@@ -761,3 +1002,7 @@ if __name__ == "__main__":
     print "Volume-weighted mean price:", np.dot(vol_weights, intra_prices)
 
     print "Market holdings:", agent_bilateral_holdings
+    """
+
+
+    # OK, replicate above code
