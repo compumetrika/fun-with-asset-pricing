@@ -1,0 +1,82 @@
+This file lays out the basics of asset-pricing using traditional methods but
+heterogeneity on the part of agent beliefs.
+
+The basic two-period consumption-based asset pricing agent (eg. see Cochrane
+2001, Chapter 1) solves the following problem:
+
+    ...fill in with agent problem from elsewhere...
+
+This is the simplest possible asset-pricing problem, described as follows:
+
+- Time is only two periods
+- Agents begin period 1 with an initial cash endowment $y_0$ and an initial asset endowment $\xi_0$.
+- Agents must choose how much asset holdings $\xi$ to retain or purchase for period 2
+- The definition above restricts short selling, borrowing beyond means, and consumption greater than zero
+- The only income in period 2 is the dividend $d$ payoff for the asset: $\xi \cross d$
+- Agents have a risk aversion $\rho$, time discount factor $\beta$, and a set of beleifs about the asset payoff in the following period.
+- Agents may differ across the features noted above, but the least controversial differences are almost certainly:
+    - beliefs
+    - initial cash or asset endowments
+
+The two-period model is chosen here both for simplicity and because many infinite-horizon problems collapse to the solution to the two-period problem under broad conditions.
+
+In addition, the two-period model can also represent the behavior of a *myopic* asset-pricing agent who lives for an indefinite number of periods, but only makes plans based on a two-period horizon. This is how we will use these agents. Future extensions will allow agents to account for further horizons.
+
+To solve the above problem for the optimal choice of $\xi$: substitute the constraints into the objective, take a first derivative and determine where the optimal point is (confirm inside solution). This gives us the familiar Euler equation:
+
+    ...fill in ...
+
+...which in turn is traditionally rearranged to produce the canonical asset-pricing equation:
+
+$$
+p_t = E \left[ \frac{u'(c_{t+1})}{u'(c_{t})} (d_{t+1}+p_{t+1}) \right] = E \left[ M X \right].
+$$
+
+Here $M$ is the "stochastic discount factor" and $X$ is total payoff in the next period, which combines both dividends and capital gains. (In the two-period model, the agent assumes no trade occurs in period 2 and thus the payoff is only the final dividend.)
+
+The traditional asset pricing approach uses the above asset pricng equation, as derived from a representative agent, to find asset prices associated with consumption and dividend streams which follow a range of processe (we will not discuss this in depth here; see Cochrane 2001 for background).
+
+Our approach will simply do the following: define N agents, with their own endowments, preferences, and beleifs, and from each obtain the demand functions which come from each solving their own optimization problem.
+
+Then simply find the price for which all demands are satisfied, via any number of methods:
+
+* tatannoment (market clearing)
+* bilateral trade
+* order book execution
+* search and matching
+
+or others. There are a number of possible pricing finding mechanisms which may be employed in this rather general setting.
+
+
+
+The two-period model can be easily converted
+
+This very simple setup will allow us to explore the effects of different types of heterogeneity quickly and easily, and explore the different effects that market structures may have.
+
+
+## Market Setups Explored Below
+
+There are two main variations examined below:
+
+1. A version with difference in how assets behave:
+
+
+
+## Extensions
+
+- price expectations: we will need to add:
+    - an additional period to the start of the model
+    - a multi-dimensional expectations operator
+        - this may be avoided if we impose that dividends are constant
+
+
+
+
+
+
+To add prices to expectations we will need to do some
+
+
+
+
+The only descision the agents make is how much of the

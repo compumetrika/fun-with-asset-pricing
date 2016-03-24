@@ -213,12 +213,15 @@ class AssetPricingAgent(object):
 
 class AssetMarket(object):
 
-    def __init__(self, agents, D, D_probs, aggregate_asset_endowment=1.0, seed=None):
+    def __init__(self, agents, D, D_probs, aggregate_asset_endowment=1.0, seed=None, lucas_tree=False):
         '''
         Market simply consists of collection of agents.
+
+        lucas_tree: True means agents get same allocation of xi0 every morning
         '''
 
         self.seed=seed
+        self.lucas_tree = lucas_tree
         self.agents = agents
         self.price_history = []
         self.volume_history = []
@@ -341,6 +344,12 @@ class AssetMarket(object):
         '''
         Given a list of agents, pair up agents to trade until no trades are realized.
         '''
+
+        # Need to transfer the bilateral market code here. Then need to be careful about how agents are updated and how all of this is saved in market history.
+
+        # Agent updates need to be carried out such that agents themselves are correctly advanced through their asset laws of motion. 
+
+
         pass
 
     def clear_market2(self, alt_title=""):
@@ -381,6 +390,8 @@ class AssetMarket(object):
 
             # Update agent value:
             agent.y = xi*d
+            if not self.lucas_tree:
+                agent.xi0 = xi
             agent.update_utility_demand()
         # Done
 
@@ -432,6 +443,7 @@ if __name__ == "__main__":
     total_two_agent_wealth = agent2.y + agent3.y
     agent_2_fraction = (1.0/4.0)
     agent2.y = agent_2_fraction * (total_two_agent_wealth)   # Cut to 1/3 of two agents summed wealth
+    #agent2.rho *=1.2
     agent2.update_utility_demand()
 
     agent3.y = (1.0-agent_2_fraction) * (total_two_agent_wealth)   # Set to 2/3 of two agents summed wealth
@@ -440,7 +452,7 @@ if __name__ == "__main__":
     # Give agent 1 wrong expectations:
     INCLUDE_PESSIMIST = True
     if INCLUDE_PESSIMIST:
-        agent1.D_probs[0] *= 10.0    # Increase probability of lowest/higest state
+        agent1.D_probs[0] *= 5.0    # Increase probability of lowest/higest state
         agent1.renormalize_beliefs()
         agent1.update_utility_demand()
         print "Making one agent pessimistic!"
@@ -461,8 +473,11 @@ if __name__ == "__main__":
                          aggregate_asset_endowment=supply_to_use,
                          seed=seed)
 
+    # Define second market for bilateral trade experiment:
+    market2 = deepcopy(market)
+
     # Run the market for T periods:
-    T=50
+    T=100
     market.run_markets(T=T)
 
 
@@ -525,14 +540,16 @@ if __name__ == "__main__":
 
     # Plot incomes quickly:
     for i in range(len(market.agents)):
-        plt.plot(market.agents_history[i]['y'])
+        plt.plot(market.agents_history[i]['y'], label="D_probs[0]="+str(round(market.agents[i].D_probs[0],2)))
+    plt.legend(loc='best',frameon=False)
     plt.title("Wealth\n" + extra_descrip)
     plt.savefig("Wealth-" + extra_descrip + ".pdf")
     plt.show()
 
     # Plot xi quickly:
     for i in range(len(market.agents)):
-        plt.plot(market.agents_history[i]['xi'])
+        plt.plot(market.agents_history[i]['xi'], label="D_probs[0]="+str(round(market.agents[i].D_probs[0],2)))
+    plt.legend(loc='best',frameon=False)
     plt.title("Savings\n" + extra_descrip)
     plt.savefig("Savings-" + extra_descrip + ".pdf")
 
@@ -541,7 +558,8 @@ if __name__ == "__main__":
 
     # Plot ct quickly:
     for i in range(len(market.agents)):
-        plt.plot(market.agents_history[i]['c'])
+        plt.plot(market.agents_history[i]['c'], label="D_probs[0]="+str(round(market.agents[i].D_probs[0],2)))
+    plt.legend(loc='best',frameon=False)
     plt.title("Consumption\n" + extra_descrip)
     plt.savefig("Consumption-" + extra_descrip + ".pdf")
     plt.show()
@@ -563,6 +581,8 @@ if __name__ == "__main__":
 
 
     # Try bilateral trade:
+    market = deepcopy(market2)  # Read back in original market...
+
     def excess_demand(p, total_supply, these_agents):
         total_demand = 0.0
         for an_agent in these_agents:
@@ -613,7 +633,7 @@ if __name__ == "__main__":
     # To examine:
     ctr = 0
     no_price_progress = False
-    rng = np.random.RandomState(123456)
+    rng = np.random.RandomState(1234567)
     '''
     # 456
     Prices: [2.3860438566958813, 1.625429932928617, 1.9217189463616882, 1.744407434216346, 1.829945070059278, 1.793921893062568, 1.811583918344606, 1.80420696517319, 1.8084514863876473, 1.80629568146136, 1.8072100489646121, 1.8067458122676454, 1.806942754283399]
@@ -632,6 +652,7 @@ if __name__ == "__main__":
     set_of_all_combos = set([frozenset(combo) for combo in combinations(range(N), n_to_trade)])
 
     intra_prices = []
+    intra_volumes = []
     intra_price_partners = []
     essentially_no_trade = set([])
 
@@ -664,8 +685,15 @@ if __name__ == "__main__":
             # Ensure that agents who traded are removed from "no trade" set:
             essentially_no_trade -= set([frozenset( trading_agent_indicies )])
 
-            # Record the "intra-day" prices and update agents:
+            # Record the "intra-day" prices, volume, and update agents:
             intra_prices.append(pstar)
+            vol1 = np.abs(trading_agents[0].xi0 - trading_agents[0].demand(pstar))
+            for agent in trading_agents[1:]:
+                vol2 = np.abs(agent.xi0 - agent.demand(pstar))
+                assert np.isclose(vol1, vol2), "Trading agents are not close! vol1, vol2 = " +str([vol1, vol2])
+                vol2=vol1
+
+            intra_volumes.append(vol1)
             intra_price_partners.append(deepcopy(agent_indices[:n_to_trade]))
 
             # Update agents:
@@ -695,6 +723,13 @@ if __name__ == "__main__":
 
                     # Record the "intra-day" prices and update agents:
                     intra_prices.append(pstar)
+                    vol1 = np.abs(trading_agents[0].demand(pstar))
+                    for agent in trading_agents[1:]:
+                        vol2 = np.abs(agent.demand(pstar))
+                        assert np.isclose(vol1, vol2), "Trading agents are not close! vol1, vol2 = " +str([vol1, vol2])
+                        vol2=vol1
+
+                    intra_volumes.append(vol1)
                     intra_price_partners.append(deepcopy(agent_indices[:n_to_trade]))
 
                     # Update agents:
@@ -703,9 +738,12 @@ if __name__ == "__main__":
                 print "Confirmed between all trading pairs that no bilateral trades are possible."
 
 
+    vol_weights = np.array(intra_prices) / float(np.sum(intra_prices))
 
     print "Bilateral Trade completed"
     print "Prices:", intra_prices
+    print "Volumes:", intra_volumes
+    print "Volume-weighted mean price:", np.dot(vol_weights, intra_prices)
     print "Traders:", intra_price_partners
     print "-----------"
     print "-----------"
@@ -719,5 +757,7 @@ if __name__ == "__main__":
 
     agent_bilateral_holdings = deepcopy([agent.xi0 for agent in market.agents])
     print "Bilateral price, agent holdings under price:"
-    print "price:", intra_prices[-3:], "mean:", np.mean(intra_prices[-3:])
+    print "price:", intra_prices[-3:], "last 3 mean:", np.mean(intra_prices[-3:])
+    print "Volume-weighted mean price:", np.dot(vol_weights, intra_prices)
+
     print "Market holdings:", agent_bilateral_holdings
