@@ -37,8 +37,10 @@ class AssetPricingAgent(object):
 
         # Set agent paramters:
         self.beta, self.rho = beta, rho
-        self.y = y0
         self.xi0 = xi0
+        self.y = y0
+        self.y0 = self.y    # This indicates "beginning of period" income;
+                            # useful for record-keeping during bilateral trade.
 
         # Ensure that dividend payoffs are sorted from smallest to largest:
         self.D = np.array(D)
@@ -152,6 +154,7 @@ class AssetMarket(object):
         '''
 
         self.seed=seed
+        self.RNG = np.random.RandomState(self.seed)
         self.lucas_tree = lucas_tree
         self.agents = agents
         self.price_history = []
@@ -195,7 +198,8 @@ class AssetMarket(object):
         # Quick check:
         assert np.isclose(np.sum(D_probs), 1.0), "Problem: p_dividend does not sum to 1.0: np.sum(D_probs) = " + str(np.sum(D_probs))
 
-        self.D_process = DiscreteRV(self.D_probs, self.D, seed=self.seed)
+        D_seed = self.RNG.randint(low=0, high=(2**31)-1)
+        self.D_process = DiscreteRV(self.D_probs, self.D, seed=D_seed)
         # Done
 
 
@@ -254,12 +258,16 @@ class AssetMarket(object):
 
         return total_demand - total_supply
 
-    def clear_market(self, p0=None):
+
+    def clear_market(self, these_agents=None, p0=None):
         '''
         Given an initial price guess, zero-find on total asset demand.
 
         p0 is initial price.
         '''
+
+        if these_agents is None:
+            these_agents = self.agents
 
         # Set intial price guess
         if p0 is None:
@@ -267,16 +275,15 @@ class AssetMarket(object):
             # Note: currently not using first guess....
 
         # Zero-find to determine price:
-        supply_to_use = sum((agent.xi0 for agent in self.agents))
+        supply_to_use = sum((agent.xi0 for agent in these_agents))
 
-        p, root_results = brentq(f=self.excess_demand, args=(supply_to_use, self.agents), a=0.001, b=1000, full_output=True, disp=True)
+        p, root_results = brentq(f=self.excess_demand, args=(supply_to_use, these_agents), a=0.0001, b=1000, full_output=True, disp=True)
 
         if not root_results.converged:
             print "WARNING: root_results.converged not True!:  root_results.converged = ", root_results.converged
             print "root_results:", root_results
 
         return p
-
 
 
 
@@ -303,14 +310,14 @@ class AssetMarket(object):
 
 
             # Clear markets:
-            #pstar = self.clear_market()
+            volume_weighted_price, intra_prices, intra_volumes, intra_price_partners, agent_bilateral_holdings = self.bilateral_trade()
 
             # Update
-            self.price_history.append(pstar)
+            self.price_history.append(volume_weighted_price)
 
-            self.bilateral_price_history = []
-            self.bilateral_volume_history = []
-            self.bilateral_trade_partner_history = []
+            self.bilateral_price_history = [deepcopy(intra_prices)]
+            self.bilateral_volume_history = [deepcopy(intra_volumes)]
+            self.bilateral_trade_partner_history = [deepcopy(intra_price_partners)]
 
             self.payoff_history.append(D[t])
 
@@ -320,7 +327,7 @@ class AssetMarket(object):
             self.volume_history.append(total_agent_asset_volume)
 
             # Now update agents and histories:
-            self.update_agents_bilateral(d=D[t]))
+            self.update_agents_bilateral(d=D[t])
 
         # Done
 
@@ -354,8 +361,6 @@ class AssetMarket(object):
         '''
         Given pstar, update all agent histories.
 
-        WHERE AT: HERE! Need to think about carefully!
-
         Definitely need to work through.
 
         '''
@@ -363,14 +368,14 @@ class AssetMarket(object):
             # Determine and save choices:
             xi = agent.xi0
             #ct = agent.y + pstar*agent.xi0 - pstar*xi
-            ct = None
+            ct = agent.y
             #print "new c=calc"
             self.agents_history[i]['c'].append(ct)
-            self.agents_history[i]['y'].append(agent.y)
             self.agents_history[i]['xi'].append(xi)
 
             # Update agent value:
             agent.y += xi*d
+            self.agents_history[i]['y'].append(agent.y)
             if not self.lucas_tree:
                 agent.xi0 = xi
             agent.update_utility_demand()
@@ -402,6 +407,7 @@ class AssetMarket(object):
             trade_occurred = trade_occurred and not(np.isclose(xi_new, an_agent.xi0))  # so agents did not trade here
         return trade_occurred
 
+
     def bilateral_trade(self, upper_trade_limit=None):
         '''
         Given a list of agents, pair up agents to trade until no trades are realized.
@@ -417,7 +423,7 @@ class AssetMarket(object):
         set_of_all_combos = set([frozenset(combo) for combo in combinations(range(N), n_to_trade)])
 
         if upper_trade_limit is None:
-            upper_trade_limit = len(set_of_all_combos)*5
+            upper_trade_limit = max(10000, len(set_of_all_combos)*5)
 
 
         intra_prices = []
@@ -425,8 +431,10 @@ class AssetMarket(object):
         intra_price_partners = []
         essentially_no_trade = set([])
 
+        ctr=0
         no_trade_ctr = 0
         no_trade_rounds = 2  # How many rounds do we want to go past total no trade "just to check?"
+        no_price_progress = False
         while ctr < upper_trade_limit and not(no_price_progress) and no_trade_ctr < no_trade_rounds:
             # Update ctr:
             ctr += 1
@@ -434,17 +442,17 @@ class AssetMarket(object):
             # Randomly choose two agents, clear their own trades, and update them.
             # How: choose N, "order all," grab first two
             agent_indices = range(N)
-            rng.shuffle(agent_indices)
+            self.RNG.shuffle(agent_indices)
 
             trading_agent_indicies = agent_indices[:n_to_trade]
 
             trading_agents = [self.agents[i] for i in trading_agent_indicies]
 
             # Choose 2 and get price for clearing
-            pstar = clear_market(these_agents=trading_agents)
+            pstar = self.clear_market(these_agents=trading_agents)
 
             # Check to see if the agents actually trade at this price:
-            trade_occurred = confirm_trade(pstar, trading_agents)
+            trade_occurred = self.confirm_trade(pstar, trading_agents)
             if not trade_occurred:
                 # Then add the pair to the list of "no trading pairs":
                 essentially_no_trade.update( [frozenset( trading_agent_indicies )] )
@@ -481,10 +489,10 @@ class AssetMarket(object):
                     trading_agents = [self.agents[i] for i in trading_agent_indicies]
 
                     # Choose 2 and get price for clearing
-                    pstar = clear_market(these_agents=trading_agents)
+                    pstar = self.clear_market(these_agents=trading_agents)
 
                     # Check if any trade:
-                    trade_occurred = confirm_trade(pstar, trading_agents)
+                    trade_occurred = self.confirm_trade(pstar, trading_agents)
                     if trade_occurred:
                         # Execute the trade and kick back out
                         no_trade_ctr = 0  # Reset to kick back out
@@ -495,7 +503,7 @@ class AssetMarket(object):
                         vol1 = np.abs(trading_agents[0].demand(pstar))
                         for agent in trading_agents[1:]:
                             vol2 = np.abs(agent.demand(pstar))
-                            assert np.isclose(vol1, vol2), "Trading agents are not close! vol1, vol2 = " +str([vol1, vol2])
+                            #assert np.isclose(vol1, vol2), "Trading agents are not close! vol1, vol2 = " +str([vol1, vol2])
                             vol2=vol1
 
                         intra_volumes.append(vol1)
@@ -747,9 +755,61 @@ if __name__ == "__main__":
         pass
 
 
+    if False:
 
-    # Try bilateral trade:
-    market = deepcopy(market2)  # Read back in original market...
+        # Try bilateral trade:
+        market = deepcopy(market2)  # Read back in original market...
+
+        market.run_bilateral_markets(T=T)
+
+        # Plot Prices quickly:
+        plt.plot(market.price_history, label="Prices")
+        plt.plot(market.payoff_history, label="Dividends")
+        plt.plot(market.total_agent_cash_wealth_history, label="Total Agent Cash")
+        plt.legend(loc='best',frameon=False)
+        plt.title("Prices"+'\n'+extra_descrip)
+        plt.savefig("Prices-" + extra_descrip + ".pdf")
+        plt.show()
+
+        # Plot Prices vs volume quickly:
+        min_y = min(min(market.price_history), min(market.volume_history))
+        max_y = max(max(market.price_history), max(market.volume_history))
+        plt.plot(market.price_history, label="Prices")
+        plt.plot(market.volume_history, label="Volume")
+        plt.ylim(min_y - 0.1*(max_y-min_y), max_y)
+        plt.legend(loc='best',frameon=False)
+        plt.title("Prices vs Volume\n"+ extra_descrip)
+        plt.savefig("Prices-vs-Volume-" + extra_descrip + ".pdf")
+        plt.show()
+
+
+        # Plot incomes quickly:
+        for i in range(len(market.agents)):
+            plt.plot(market.agents_history[i]['y'], label="D_probs[0]="+str(round(market.agents[i].D_probs[0],2)))
+        plt.legend(loc='best',frameon=False)
+        plt.title("Wealth\n" + extra_descrip)
+        plt.savefig("Wealth-" + extra_descrip + ".pdf")
+        plt.show()
+
+        # Plot xi quickly:
+        for i in range(len(market.agents)):
+            plt.plot(market.agents_history[i]['xi'], label="D_probs[0]="+str(round(market.agents[i].D_probs[0],2)))
+        plt.legend(loc='best',frameon=False)
+        plt.title("Savings\n" + extra_descrip)
+        plt.savefig("Savings-" + extra_descrip + ".pdf")
+
+        plt.show()
+
+
+    # Plot ct quickly:
+    for i in range(len(market.agents)):
+        plt.plot(market.agents_history[i]['c'], label="D_probs[0]="+str(round(market.agents[i].D_probs[0],2)))
+    plt.legend(loc='best',frameon=False)
+    plt.title("Consumption\n" + extra_descrip)
+    plt.savefig("Consumption-" + extra_descrip + ".pdf")
+    plt.show()
+
+
     """
     def excess_demand(p, total_supply, these_agents):
         total_demand = 0.0

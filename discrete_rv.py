@@ -9,9 +9,8 @@ specified vector of probabilities.
 
 Modified by Nathan Palmer, March 2016
 """
-
-
-
+from __future__ import division
+import numpy as np
 from numpy import cumsum
 from numpy.random import uniform
 
@@ -79,7 +78,7 @@ class DiscreteRV(object):
 # ------------------------------------------------------------------------------
 # DiscreteRV and any additional QuantEcon code:
 #
-# Copyright © 2013, 2014 Thomas J. Sargent and John Stachurski: BSD-3
+# Copyright (c) 2013, 2014 Thomas J. Sargent and John Stachurski: BSD-3
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
